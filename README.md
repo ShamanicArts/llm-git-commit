@@ -48,7 +48,6 @@ After submitting the message (or if using `-y`), you'll get a final confirmation
 -   `--tracked`: Uses all changes to tracked files (`git diff HEAD`). Commits with `git commit -a`.
 -   `-m MODEL_ID`, `--model MODEL_ID`: Specify which LLM model to use.
 -   `-s SYSTEM_PROMPT`, `--system SYSTEM_PROMPT`: Use a custom system prompt.
--   `--key API_KEY`: Provide an API key for the model directly.
 -   `-y`, `--yes`: Skip interactive editing and use the LLM's suggestion directly (still asks for final commit confirmation).
 
 ## The System Prompt

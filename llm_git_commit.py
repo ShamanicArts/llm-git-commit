@@ -3,8 +3,9 @@ import llm # Main LLM library
 import subprocess # For running git commands
 from prompt_toolkit import PromptSession # For interactive editing
 from prompt_toolkit.patch_stdout import patch_stdout # Important for prompt_toolkit
-# from prompt_toolkit.lexers import PygmentsLexer # Optional: if you want syntax highlighting
-# from pygments.lexers.text import PlainTextLexer   # for the commit message editor
+from prompt_toolkit.formatted_text import FormattedText
+from prompt_toolkit.styles import Style        
+
 
 # --- System Prompt ---
 DEFAULT_GIT_COMMIT_SYSTEM_PROMPT = """
@@ -222,26 +223,34 @@ def _interactive_edit_message(suggestion):
     """Allows interactive editing of the commit message."""
     click.echo(click.style("\nSuggested commit message (edit below):", fg="cyan"))
     
-    session = PromptSession(
-        # lexer=PygmentsLexer(PlainTextLexer), # Keep it simple, or explore more specific lexers
-        message="""\
+    prompt_instructions_text = """\
 Type/edit your commit message below.
   - To add a NEW LINE: Press Enter.
   - To SUBMIT message: Press Esc, then press Enter.
                      (Alternatively, try Alt+Enter or Option+Enter on Mac).
-  - To CANCEL: Press Ctrl+D or Ctrl+C.
+  - To CANCEL: Press Ctrl+D or Ctrl-C.
 
 Commit Message:
-""" 
+"""
+    custom_style = Style.from_dict({
+        'instruction': 'ansicyan' 
+    })
+
+    formatted_instructions = FormattedText([
+        ('class:instruction', prompt_instructions_text)
+    ])
+
+    session = PromptSession(
+        message=formatted_instructions,
+        style=custom_style,
     )
     
-    with patch_stdout(): # Essential for prompt_toolkit
+    with patch_stdout():
         edited_message = session.prompt(
-            default=suggestion,
-            multiline=True # Git commit messages can be multi-line
+            default=suggestion, 
+            multiline=True 
         )
-    return edited_message # Returns None if Ctrl-D/Ctrl-C
-
+    return edited_message
 
 def _execute_git_commit(message, commit_all_tracked):
     """Executes the git commit command."""
