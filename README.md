@@ -8,7 +8,9 @@ This plugin requires [LLM](https://llm.datasette.io/) to be installed.
 
 you can install this plugin using llm install like so
 
-```llm install llm-git-commit```
+```bash
+llm install llm-git-commit
+```
 
 ## Usage
 
