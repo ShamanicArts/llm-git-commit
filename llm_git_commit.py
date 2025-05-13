@@ -8,15 +8,46 @@ from prompt_toolkit.patch_stdout import patch_stdout # Important for prompt_tool
 
 # --- System Prompt ---
 DEFAULT_GIT_COMMIT_SYSTEM_PROMPT = """
-You are an expert programmer tasked with writing a git commit message.
-Based on the provided 'git diff' output, generate a concise and informative commit message.
-The commit message should ideally follow the Conventional Commits specification (e.g., 'feat: add new login button', 'fix: resolve issue with user authentication', 'docs: update API documentation', 'style: reformat code according to style guide', 'refactor: improve performance of data processing module', 'test: add unit tests for new service', 'chore: update dependencies').
-The diff output shows only the changes to be committed.
+You are an expert programmer tasked with writing a concise and conventional git commit message.
+Analyze the provided 'git diff' output, which details specific code changes.
+Your goal is to create a commit message that SUCCINCTLY summarizes THESE CODE CHANGES.
 
-Focus on describing WHAT changed and WHY the change was made, if apparent from the diff.
-Keep the subject line (the first line) ideally under 50 characters. If more detail is needed, provide a blank line after the subject and then a more detailed body.
+**Format Rules:**
+1.  **Conventional Commits:** Start with a type, followed by an optional scope, a colon, and a space. Then, a short, imperative-mood description of the change.
+    - Types: `feat` (new feature), `fix` (bug fix), `docs` (documentation), `style` (formatting), `refactor` (code structure), `test` (adding/improving tests), `chore` (build/tooling changes).
+    - Example: `feat: add user authentication module`
+    - Example: `fix(api): correct pagination error in user endpoint`
+    - Example: `chore: configure linting tools`
+2.  **Subject Line:** The first line (subject) MUST be 50 characters or less. It should summarize the most important aspect of the changes.
+3.  **Body (Optional):**
+    - If more detail is needed to explain the *what* and *why* of the code changes, add a SINGLE BLANK LINE after the subject.
+    - The body should consist of one or more paragraphs. Keep these concise and focused on the changes.
+    - Bullet points (using `-` or `*`) are acceptable in the body for listing multiple related changes.
 
-Output ONLY the raw commit message. Do not include any other explanatory text, preamble, markdown formatting like '```', or any phrases like "Here's the commit message:".
+**Content Guidelines - CRITICAL:**
+- **Focus ONLY on the code modifications presented in the diff.**
+- If the diff adds new files (e.g., a new script, module, or entire plugin), describe the *primary purpose or core functionality these new files introduce* as a collective change.
+- **DO NOT:**
+    - Write a project description, a general list of features of the software, or a tutorial.
+    - Describe the *mere existence* of files (e.g., AVOID "Added llm_git_commit.py and pyproject.toml").
+    - Be overly verbose or conversational.
+    - List all functions or methods added unless they are critical to understanding the change at a high level.
+
+**Example Scenario: Adding a new plugin (like the one you might be committing now):**
+If the `git diff` output shows the initial files for a new "git-commit" plugin, a good commit message would look like this:
+
+feat: implement initial llm-git-commit plugin
+
+Provides core functionality for generating Git commit messages
+using an LLM based on repository changes.
+
+- Includes command structure for `llm git-commit`.
+- Implements logic for retrieving git diffs (staged/tracked).
+- Integrates LLM prompting for message generation.
+- Adds interactive editing of suggested messages.
+
+**Output Requirements:**
+Return ONLY the raw commit message text. Do not include any explanations, markdown formatting (like '```'), or any phrases like "Here's the commit message:".
 """
 
 # --- LLM Plugin Hook ---
@@ -193,7 +224,15 @@ def _interactive_edit_message(suggestion):
     
     session = PromptSession(
         # lexer=PygmentsLexer(PlainTextLexer), # Keep it simple, or explore more specific lexers
-        message="Commit message (Esc+Enter or Meta+Enter for multi-line; Ctrl-D or Ctrl-C to cancel):\n" # Prompt shown before the input area
+        message="""\
+Type/edit your commit message below.
+  - To add a NEW LINE: Press Enter.
+  - To SUBMIT message: Press Esc, then press Enter.
+                     (Alternatively, try Alt+Enter or Option+Enter on Mac).
+  - To CANCEL: Press Ctrl+D or Ctrl+C.
+
+Commit Message:
+""" 
     )
     
     with patch_stdout(): # Essential for prompt_toolkit
