@@ -6,20 +6,9 @@ LLM plugin to generate Git commit messages based on repository changes and inter
 
 This plugin requires [LLM](https://llm.datasette.io/) to be installed.
 
-**For local development / current usage:**
+you can install this plugin using llm install like so
 
-1.  If you have the code in a directory (e.g., you cloned it or created it locally):
-    ```bash
-    cd path/to/your/llm-git-commit 
-    ```
-
-2.  Install in editable mode within your LLM environment:
-    ```bash
-    llm install -e .
-    ```
-    (This command installs the plugin so `llm` can find it, and the `-e` flag means changes to the code are reflected immediately without reinstalling.)
-
-_(Future: Once published, installation will be simpler, e.g., `llm install llm-git-commit`)_
+```llm install llm-git-commit```
 
 ## Usage
 
