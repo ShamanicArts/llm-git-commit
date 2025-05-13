@@ -1,0 +1,18 @@
+Metadata-Version: 2.4
+Name: llm-git-commit
+Version: 0.1.0
+Summary: LLM plugin to generate git commit messages and interactively commit.
+Author-email: shamanic <your-email@example.com>
+License: Apache-2.0
+Classifier: License :: OSI Approved :: Apache Software License
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+Requires-Dist: llm>=0.13
+Requires-Dist: click
+Requires-Dist: prompt-toolkit

@@ -1,0 +1,30 @@
+[project]
+name = "llm-git-commit"
+version = "0.1.0"
+description = "LLM plugin to generate git commit messages and interactively commit."
+readme = "README.md" # Optional: create a README.md for instructions
+authors = [{name = "shamanic", email = "your-email@example.com"}] # Replace with your details
+license = {text = "Apache-2.0"} # Or your preferred license, e.g., MIT
+classifiers = [
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12"
+]
+dependencies = [
+    "llm>=0.13", # Check the latest version of llm and adjust if necessary
+    "click",
+    "prompt-toolkit"
+]
+requires-python = ">=3.8"
+
+# Optional: Add links to your repository if you plan to host it
+# [project.urls]
+# Homepage = "https://github.com/your-username/llm-git-commit"
+# Issues = "https://github.com/your-username/llm-git-commit/issues"
+
+[project.entry-points.llm]
+git-commit = "llm_git_commit"

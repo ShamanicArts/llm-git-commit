@@ -1,0 +1,8 @@
+llm_git_commit.py
+pyproject.toml
+llm_git_commit.egg-info/PKG-INFO
+llm_git_commit.egg-info/SOURCES.txt
+llm_git_commit.egg-info/dependency_links.txt
+llm_git_commit.egg-info/entry_points.txt
+llm_git_commit.egg-info/requires.txt
+llm_git_commit.egg-info/top_level.txt
