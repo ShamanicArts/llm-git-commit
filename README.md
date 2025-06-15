@@ -14,6 +14,9 @@ llm install llm-git-commit
 
 ## Usage
 
+https://github.com/user-attachments/assets/efa71c28-2a44-4b90-9889-3f1fbacb7507
+
+
 From within a Git repository, run:
 
 ```bash
