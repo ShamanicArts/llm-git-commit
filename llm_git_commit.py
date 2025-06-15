@@ -309,6 +309,19 @@ def _execute_git_commit(message, commit_all_tracked):
         if process.stderr:
             click.echo("Git stderr:")
             click.echo(process.stderr)
+
+        # Ask to push after successful commit
+        if click.confirm("Do you want to push the changes?", default=False):
+            click.echo("Pushing changes...")
+            try:
+                subprocess.run(["git", "push"], check=True, cwd=".")
+                click.echo(click.style("Push successful!", fg="green"))
+            except subprocess.CalledProcessError as e:
+                click.echo(click.style(f"\nError during git push:", fg="red"))
+                output = (e.stdout or "") + (e.stderr or "")
+                click.echo(output if output else "No output from git push.")
+            except FileNotFoundError:
+                click.echo(click.style("Error: 'git' command not found.", fg="red"))
             
     except subprocess.CalledProcessError as e:
         click.echo(click.style("\nError during git commit:", fg="red"))
