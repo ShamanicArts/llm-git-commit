@@ -33,6 +33,7 @@ This command will:
 -   To **cancel**, press `Ctrl+C` or `Ctrl+D`.
 
 After submitting the message (or if using `-y`), you'll get a final confirmation before `git commit` is executed.
+After a successful commit, you will be asked if you want to push the changes (default is no).
 
 ### Options
 
