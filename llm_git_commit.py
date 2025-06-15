@@ -100,9 +100,32 @@ def register_commands(cli):
             return
 
         if not diff_output.strip():
-            click.echo(f"No {diff_description} to commit.")
-            _show_git_status()
-            return
+            if diff_mode == "staged":
+                click.echo("No staged changes found.")
+                _show_git_status()
+                if click.confirm("Do you want to stage all changes and commit?", default=True):
+                    click.echo("Staging all changes...")
+                    try:
+                        subprocess.run(["git", "add", "."], check=True, cwd=".")
+                        click.echo(click.style("Changes staged.", fg="green"))
+                        # Re-get diff after staging
+                        diff_output, diff_description = _get_git_diff("staged")
+                        if not diff_output.strip():
+                            click.echo(click.style("No changes to commit even after staging.", fg="yellow"))
+                            return
+                    except subprocess.CalledProcessError as e:
+                        click.echo(click.style(f"Error staging changes: {e.stderr or e.stdout}", fg="red"))
+                        return
+                    except FileNotFoundError:
+                        click.echo(click.style("Error: 'git' command not found.", fg="red"))
+                        return
+                else:
+                    click.echo("Commit aborted.")
+                    return
+            else: # diff_mode is "tracked"
+                click.echo(f"No {diff_description} to commit.")
+                _show_git_status()
+                return
 
         # 3. Prepare for and call LLM
         from llm.cli import get_default_model # Import here to ensure LLM environment is ready

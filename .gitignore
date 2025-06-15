@@ -1,0 +1,9 @@
+# Ignore Python egg-info directory
+llm_git_commit.egg-info/
+
+# Ignore Python cache files
+__pycache__/
+
+# Ignore virtual environment directory
+.venv/
+venv/
