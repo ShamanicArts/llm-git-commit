@@ -23,7 +23,8 @@ llm git-commit
 This command will:
 1.  Identify changes in your Git repository (staged changes by default).
 2.  Send these changes to your configured Large Language Model.
-3.  Present the LLM-generated commit message for you to review and edit.
+3.  If no staged changes are found (when using the default `--staged` option), you will be prompted to stage all changes before proceeding.
+4.  Present the LLM-generated commit message for you to review and edit.
 
 **Interactive Editing:**
 -   You can edit the suggested message.
