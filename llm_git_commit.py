@@ -88,12 +88,12 @@ def register_commands(cli):
         allows interactive editing, and then commits.
         """
         
-        # 1. Check if inside a Git repository
+        #  Check if inside a Git repository
         if not _is_git_repository():
             click.echo(click.style("Error: Not inside a git repository.", fg="red"))
             return
 
-        # 2. Get Git diff
+        #  Get Git diff
         diff_output, diff_description = _get_git_diff(diff_mode)
 
         if diff_output is None: # Error occurred in _get_git_diff
@@ -110,6 +110,8 @@ def register_commands(cli):
                         click.echo(click.style("Changes staged.", fg="green"))
                         # Re-get diff after staging
                         diff_output, diff_description = _get_git_diff("staged")
+                        if diff_output is None: # Check again in case of error
+                            return
                         if not diff_output.strip():
                             click.echo(click.style("No changes to commit even after staging.", fg="yellow"))
                             return
@@ -127,7 +129,7 @@ def register_commands(cli):
                 _show_git_status()
                 return
 
-        # 3. Prepare for and call LLM
+       # Prepare for and call LLM
         from llm.cli import get_default_model # Import here to ensure LLM environment is ready
 
         actual_model_id = model_id_override or get_default_model()
@@ -195,7 +197,8 @@ def _is_git_repository():
     try:
         subprocess.run(
             ["git", "rev-parse", "--is-inside-work-tree"],
-            check=True, capture_output=True, text=True, cwd="."
+            check=True, capture_output=True, text=True, cwd=".",
+            encoding="utf-8", errors="ignore" # Added encoding to prevent OS encoding specific errors
         )
         return True
     except (subprocess.CalledProcessError, FileNotFoundError):
@@ -216,7 +219,8 @@ def _get_git_diff(diff_mode):
         
     try:
         process = subprocess.run(
-            diff_command, capture_output=True, text=True, check=True, cwd="."
+            diff_command, capture_output=True, text=True, check=True, cwd=".",
+            encoding="utf-8", errors="ignore" # FIX: Added encoding
         )
         return process.stdout, description
     except subprocess.CalledProcessError as e:
@@ -232,7 +236,10 @@ def _get_git_diff(diff_mode):
 def _show_git_status():
     """Shows a brief git status."""
     try:
-        status_output = subprocess.check_output(["git", "status", "--short"], text=True, cwd=".").strip()
+        status_output = subprocess.check_output(
+            ["git", "status", "--short"], text=True, cwd=".",
+            encoding="utf-8", errors="ignore" #  Added encoding to prevent OS encoding specific errors
+        ).strip()
         if status_output:
             click.echo("\nCurrent git status (--short):")
             click.echo(status_output)
@@ -299,7 +306,8 @@ def _execute_git_commit(message, commit_all_tracked):
 
     try:
         process = subprocess.run(
-            commit_command, capture_output=True, text=True, check=True, cwd="."
+            commit_command, capture_output=True, text=True, check=True, cwd=".",
+            encoding="utf-8", errors="ignore" #  Added encoding to prevent OS specific errors
         )
         click.echo(click.style("\nCommit successful!", fg="green"))
         if process.stdout:
@@ -314,7 +322,10 @@ def _execute_git_commit(message, commit_all_tracked):
         if click.confirm("Do you want to push the changes?", default=False):
             click.echo("Pushing changes...")
             try:
-                subprocess.run(["git", "push"], check=True, cwd=".")
+                subprocess.run(
+                    ["git", "push"], check=True, cwd=".",
+                    capture_output=True, text=True, encoding="utf-8", errors="ignore" # FIX: Added encoding
+                )
                 click.echo(click.style("Push successful!", fg="green"))
             except subprocess.CalledProcessError as e:
                 click.echo(click.style(f"\nError during git push:", fg="red"))
