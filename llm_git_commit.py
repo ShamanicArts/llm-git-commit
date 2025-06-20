@@ -8,8 +8,8 @@ from prompt_toolkit.styles import Style
 import os
 import json
 
-# --- NEW: Configuration Management ---
-# This new section handles loading and saving configuration.
+# ---  Configuration Management ---
+# This section handles loading and saving configuration.
 CONFIG_DIR = click.get_app_dir("llm-git-commit")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
 DEFAULT_MAX_CHARS = 15000
@@ -81,7 +81,7 @@ def register_commands(cli):
     """
     Registers the 'git-commit' command group with the LLM CLI.
     """
-    # --- MODIFIED: Changed to a click.group to allow for subcommands like 'config' ---
+    
     @cli.group(name="git-commit", invoke_without_command=True)
     @click.pass_context
     @click.option(
@@ -100,7 +100,6 @@ def register_commands(cli):
         "-s", "--system", "system_prompt_override", default=None,
         help="Custom system prompt to override the default."
     )
-    # --- NEW: Added --max-chars option ---
     @click.option(
         "--max-chars", "max_chars_override", type=int, default=None,
         help="Set max characters for the diff sent to the LLM."
@@ -119,11 +118,11 @@ def register_commands(cli):
 
         Run 'llm git-commit config --help' to manage persistent defaults.
         """
-        # --- ADDED: This logic handles the case where a subcommand is called ---
+       
         if ctx.invoked_subcommand is not None:
             return
 
-        # --- ADDED: Load configuration at the start ---
+        
         config = load_config()
 
         #  Check if inside a Git repository
@@ -164,7 +163,7 @@ def register_commands(cli):
         # Prepare for and call LLM
         from llm.cli import get_default_model # Import here to ensure LLM environment is ready
 
-        # --- MODIFIED: Logic to determine the model ID with config precedence ---
+        
         configured_model = config.get("model")
         actual_model_id = model_id_override or configured_model or get_default_model()
         
@@ -187,13 +186,13 @@ def register_commands(cli):
                 click.echo(f"Set via 'llm keys set {model_obj.needs_key}', --key option, or ${model_obj.key_env_var}.")
                 return
 
-        # --- MODIFIED: Truncate diff using the resolved max_chars value ---
+        # --- Truncate diff using the resolved max_chars value ---
         max_chars = max_chars_override or config.get("max-chars") or DEFAULT_MAX_CHARS
         if len(diff_output) > max_chars:
             click.echo(click.style(f"Warning: Diff is very long ({len(diff_output)} chars), truncating to {max_chars} chars for LLM.", fg="yellow"))
             diff_output = diff_output[:max_chars] + "\n\n... [diff truncated]"
 
-        # --- MODIFIED: Logic to determine the system prompt with config precedence ---
+        # --- Logic to determine the system prompt with config precedence ---
         system_prompt = system_prompt_override or config.get("system") or DEFAULT_GIT_COMMIT_SYSTEM_PROMPT
         
         click.echo(f"Generating commit message using {click.style(actual_model_id, bold=True)} based on {diff_description}...")
@@ -209,7 +208,7 @@ def register_commands(cli):
             click.echo(click.style("LLM returned an empty commit message. Please write one manually or try again.", fg="yellow"))
             generated_message = ""
 
-        # 4. Interactive Edit & Commit or Direct Commit
+        #  Interactive Edit & Commit or Direct Commit
         if yes:
             if not generated_message:
                 click.echo(click.style("LLM returned an empty message and --yes was used. Aborting commit.", fg="red"))
@@ -226,7 +225,7 @@ def register_commands(cli):
         
         _execute_git_commit(final_message, diff_mode == "tracked")
 
-    # --- NEW: 'config' subcommand attached to the git_commit_command group ---
+    # --- 'config' subcommand attached to the git_commit_command group ---
     @git_commit_command.command(name="config")
     @click.option("--view", is_flag=True, help="View the current configuration.")
     @click.option("--reset", is_flag=True, help="Reset all configurations to default.")
@@ -286,7 +285,7 @@ def register_commands(cli):
             click.echo(ctx.get_help())
 
 
-# --- Helper Functions (Unchanged) ---
+# --- Helper Functions  ---
 def _is_git_repository():
     """Checks if the current directory is part of a git repository."""
     try:
