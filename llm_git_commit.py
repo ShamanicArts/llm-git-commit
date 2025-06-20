@@ -5,9 +5,33 @@ from prompt_toolkit import PromptSession # For interactive editing
 from prompt_toolkit.patch_stdout import patch_stdout # Important for prompt_toolkit
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.styles import Style        
+import os
+import json
+
+# ---  Configuration Management ---
+# This section handles loading and saving configuration.
+CONFIG_DIR = click.get_app_dir("llm-git-commit")
+CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
+DEFAULT_MAX_CHARS = 15000
+
+def load_config():
+    """Loads configuration from the JSON file."""
+    if not os.path.exists(CONFIG_FILE):
+        return {}
+    try:
+        with open(CONFIG_FILE, 'r') as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return {}
+
+def save_config(config_data):
+    """Saves configuration to the JSON file."""
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    with open(CONFIG_FILE, 'w') as f:
+        json.dump(config_data, f, indent=2)
 
 
-# --- System Prompt ---
+# --- System Prompt (Unchanged) ---
 DEFAULT_GIT_COMMIT_SYSTEM_PROMPT = """
 You are an expert programmer tasked with writing a concise and conventional git commit message.
 Analyze the provided 'git diff' output, which details specific code changes.
@@ -55,9 +79,11 @@ Return ONLY the raw commit message text. Do not include any explanations, markdo
 @llm.hookimpl
 def register_commands(cli):
     """
-    Registers the 'git-commit' command with the LLM CLI.
+    Registers the 'git-commit' command group with the LLM CLI.
     """
-    @cli.command("git-commit")
+    
+    @cli.group(name="git-commit", invoke_without_command=True)
+    @click.pass_context
     @click.option(
         "--staged", "diff_mode", flag_value="staged", default=True,
         help="Generate commit message based on staged changes (git diff --staged). [Default]"
@@ -75,6 +101,10 @@ def register_commands(cli):
         help="Custom system prompt to override the default."
     )
     @click.option(
+        "--max-chars", "max_chars_override", type=int, default=None,
+        help="Set max characters for the diff sent to the LLM."
+    )
+    @click.option(
         "--key", "api_key_override", default=None,
         help="API key for the LLM model (if required and not set globally)."
     )
@@ -82,12 +112,19 @@ def register_commands(cli):
         "-y", "--yes", is_flag=True,
         help="Automatically confirm and proceed with the commit without interactive editing (uses LLM output directly)."
     )
-    def git_commit_command(diff_mode, model_id_override, system_prompt_override, api_key_override, yes):
+    def git_commit_command(ctx, diff_mode, model_id_override, system_prompt_override, max_chars_override, api_key_override, yes):
         """
-        Generates a Git commit message using an LLM based on repository changes,
-        allows interactive editing, and then commits.
+        Generates Git commit messages using an LLM.
+
+        Run 'llm git-commit config --help' to manage persistent defaults.
         """
+       
+        if ctx.invoked_subcommand is not None:
+            return
+
         
+        config = load_config()
+
         #  Check if inside a Git repository
         if not _is_git_repository():
             click.echo(click.style("Error: Not inside a git repository.", fg="red"))
@@ -108,18 +145,12 @@ def register_commands(cli):
                     try:
                         subprocess.run(["git", "add", "."], check=True, cwd=".")
                         click.echo(click.style("Changes staged.", fg="green"))
-                        # Re-get diff after staging
                         diff_output, diff_description = _get_git_diff("staged")
-                        if diff_output is None: # Check again in case of error
-                            return
-                        if not diff_output.strip():
+                        if diff_output is None or not diff_output.strip():
                             click.echo(click.style("No changes to commit even after staging.", fg="yellow"))
                             return
-                    except subprocess.CalledProcessError as e:
-                        click.echo(click.style(f"Error staging changes: {e.stderr or e.stdout}", fg="red"))
-                        return
-                    except FileNotFoundError:
-                        click.echo(click.style("Error: 'git' command not found.", fg="red"))
+                    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+                        click.echo(click.style(f"Error staging changes: {e}", fg="red"))
                         return
                 else:
                     click.echo("Commit aborted.")
@@ -129,13 +160,16 @@ def register_commands(cli):
                 _show_git_status()
                 return
 
-       # Prepare for and call LLM
+        # Prepare for and call LLM
         from llm.cli import get_default_model # Import here to ensure LLM environment is ready
 
-        actual_model_id = model_id_override or get_default_model()
+        
+        configured_model = config.get("model")
+        actual_model_id = model_id_override or configured_model or get_default_model()
+        
         if not actual_model_id:
-            click.echo(click.style("Error: No LLM model specified and no default model configured.", fg="red"))
-            click.echo("Try 'llm models list' or 'llm keys set <model_alias>'. Specify with --model <model_id>.")
+            click.echo(click.style("Error: No LLM model specified or configured.", fg="red"))
+            click.echo("Try 'llm models list' or set a default with 'llm git-commit config --model <id>'.")
             return
 
         try:
@@ -152,13 +186,14 @@ def register_commands(cli):
                 click.echo(f"Set via 'llm keys set {model_obj.needs_key}', --key option, or ${model_obj.key_env_var}.")
                 return
 
-        # Truncate diff if too long (simple approach)
-        MAX_DIFF_CHARS = 15000 # Adjust based on typical model context limits
-        if len(diff_output) > MAX_DIFF_CHARS:
-            click.echo(click.style(f"Warning: Diff is very long ({len(diff_output)} chars), truncating to {MAX_DIFF_CHARS} chars for LLM.", fg="yellow"))
-            diff_output = diff_output[:MAX_DIFF_CHARS] + "\n\n... [diff truncated]"
+        # --- Truncate diff using the resolved max_chars value ---
+        max_chars = max_chars_override or config.get("max-chars") or DEFAULT_MAX_CHARS
+        if len(diff_output) > max_chars:
+            click.echo(click.style(f"Warning: Diff is very long ({len(diff_output)} chars), truncating to {max_chars} chars for LLM.", fg="yellow"))
+            diff_output = diff_output[:max_chars] + "\n\n... [diff truncated]"
 
-        system_prompt = system_prompt_override or DEFAULT_GIT_COMMIT_SYSTEM_PROMPT
+        # --- Logic to determine the system prompt with config precedence ---
+        system_prompt = system_prompt_override or config.get("system") or DEFAULT_GIT_COMMIT_SYSTEM_PROMPT
         
         click.echo(f"Generating commit message using {click.style(actual_model_id, bold=True)} based on {diff_description}...")
         
@@ -171,9 +206,9 @@ def register_commands(cli):
 
         if not generated_message:
             click.echo(click.style("LLM returned an empty commit message. Please write one manually or try again.", fg="yellow"))
-            generated_message = "" # Start with an empty message for editing
+            generated_message = ""
 
-        # 4. Interactive Edit & Commit or Direct Commit
+        #  Interactive Edit & Commit or Direct Commit
         if yes:
             if not generated_message:
                 click.echo(click.style("LLM returned an empty message and --yes was used. Aborting commit.", fg="red"))
@@ -184,21 +219,80 @@ def register_commands(cli):
         else:
             final_message = _interactive_edit_message(generated_message)
 
-        if final_message is None or not final_message.strip(): # User cancelled or cleared message
+        if final_message is None or not final_message.strip():
             click.echo("Commit aborted.")
             return
         
         _execute_git_commit(final_message, diff_mode == "tracked")
 
+    # --- 'config' subcommand attached to the git_commit_command group ---
+    @git_commit_command.command(name="config")
+    @click.option("--view", is_flag=True, help="View the current configuration.")
+    @click.option("--reset", is_flag=True, help="Reset all configurations to default.")
+    @click.option("-m", "--model", "model_config", default=None, help="Set the default model.")
+    @click.option("-s", "--system", "system_config", default=None, help="Set the default system prompt.")
+    @click.option("--max-chars", "max_chars_config", type=int, default=None, help="Set the default max characters.")
+    @click.pass_context
+    def config_command(ctx, view, reset, model_config, system_config, max_chars_config):
+        """
+        View or set persistent default options for llm-git-commit.
+        
+        Examples:
+        \b
+          llm git-commit config --view
+          llm git-commit config --model gpt-4-turbo
+          llm git-commit config --max-chars 8000
+          llm git-commit config --reset
+        """
+        config_data = load_config()
 
-# --- Helper Functions ---
+        if view:
+            click.echo(f"Configuration file location: {CONFIG_FILE}")
+            if config_data:
+                click.echo(json.dumps(config_data, indent=2))
+            else:
+                click.echo("No configuration set.")
+            return
+
+        if reset:
+            if click.confirm("Are you sure you want to reset all configurations?"):
+                if os.path.exists(CONFIG_FILE):
+                    os.remove(CONFIG_FILE)
+                click.echo("Configuration has been reset.")
+            else:
+                click.echo("Reset cancelled.")
+            return
+
+        updates_made = False
+        if model_config is not None:
+            config_data["model"] = model_config
+            click.echo(f"Default model set to: {model_config}")
+            updates_made = True
+        
+        if system_config is not None:
+            config_data["system"] = system_config
+            click.echo(f"Default system prompt set.")
+            updates_made = True
+            
+        if max_chars_config is not None:
+            config_data["max-chars"] = max_chars_config
+            click.echo(f"Default max-chars set to: {max_chars_config}")
+            updates_made = True
+
+        if updates_made:
+            save_config(config_data)
+        else:
+            click.echo(ctx.get_help())
+
+
+# --- Helper Functions  ---
 def _is_git_repository():
     """Checks if the current directory is part of a git repository."""
     try:
         subprocess.run(
             ["git", "rev-parse", "--is-inside-work-tree"],
             check=True, capture_output=True, text=True, cwd=".",
-            encoding="utf-8", errors="ignore" # Added encoding to prevent OS encoding specific errors
+            encoding="utf-8", errors="ignore"
         )
         return True
     except (subprocess.CalledProcessError, FileNotFoundError):
@@ -211,21 +305,19 @@ def _get_git_diff(diff_mode):
         diff_command.append("--staged")
         description = "staged changes"
     elif diff_mode == "tracked":
-        diff_command.append("HEAD") # Shows changes to tracked files (unstaged)
+        diff_command.append("HEAD")
         description = "unstaged changes in tracked files"
-    else: # Should not happen with click flags
+    else:
         click.echo(click.style(f"Internal error: Unknown diff mode '{diff_mode}'.", fg="red"))
         return None, "unknown changes"
         
     try:
         process = subprocess.run(
             diff_command, capture_output=True, text=True, check=True, cwd=".",
-            encoding="utf-8", errors="ignore" # FIX: Added encoding
+            encoding="utf-8", errors="ignore"
         )
         return process.stdout, description
     except subprocess.CalledProcessError as e:
-        # If 'git diff HEAD' fails, it might be an empty repo.
-        # 'git diff --staged' failing usually means no staged changes, but stdout would be empty (handled later).
         click.echo(click.style(f"Error getting git diff ({' '.join(diff_command)}):\n{e.stderr or e.stdout}", fg="red"))
         return None, description
     except FileNotFoundError:
@@ -238,7 +330,7 @@ def _show_git_status():
     try:
         status_output = subprocess.check_output(
             ["git", "status", "--short"], text=True, cwd=".",
-            encoding="utf-8", errors="ignore" #  Added encoding to prevent OS encoding specific errors
+            encoding="utf-8", errors="ignore"
         ).strip()
         if status_output:
             click.echo("\nCurrent git status (--short):")
@@ -288,9 +380,6 @@ def _execute_git_commit(message, commit_all_tracked):
     action_description = "Committing"
 
     if commit_all_tracked:
-        # 'git commit -a' stages all modified/deleted *tracked* files then commits.
-        # This matches the scope of 'git diff HEAD'.
-        # It does NOT add new untracked files.
         commit_command.extend(["commit", "-a", "-m", message])
         action_description = "Staging all tracked file changes and committing"
     else: # Staged changes
@@ -307,24 +396,22 @@ def _execute_git_commit(message, commit_all_tracked):
     try:
         process = subprocess.run(
             commit_command, capture_output=True, text=True, check=True, cwd=".",
-            encoding="utf-8", errors="ignore" #  Added encoding to prevent OS specific errors
+            encoding="utf-8", errors="ignore"
         )
         click.echo(click.style("\nCommit successful!", fg="green"))
         if process.stdout:
             click.echo("Git output:")
             click.echo(process.stdout)
-        # stderr might contain info even on success for some git operations, or warnings
         if process.stderr:
             click.echo("Git stderr:")
             click.echo(process.stderr)
 
-        # Ask to push after successful commit
         if click.confirm("Do you want to push the changes?", default=False):
             click.echo("Pushing changes...")
             try:
                 subprocess.run(
                     ["git", "push"], check=True, cwd=".",
-                    capture_output=True, text=True, encoding="utf-8", errors="ignore" # FIX: Added encoding
+                    capture_output=True, text=True, encoding="utf-8", errors="ignore"
                 )
                 click.echo(click.style("Push successful!", fg="green"))
             except subprocess.CalledProcessError as e:
