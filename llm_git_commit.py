@@ -4,6 +4,7 @@ import subprocess # For running git commands
 from prompt_toolkit import PromptSession # For interactive editing
 from prompt_toolkit.patch_stdout import patch_stdout # Important for prompt_toolkit
 from prompt_toolkit.formatted_text import FormattedText
+from prompt_toolkit.shortcuts import print_formatted_text
 from prompt_toolkit.styles import Style
 from prompt_toolkit.key_binding import KeyBindings        
 import os
@@ -84,16 +85,19 @@ The original code changes (git diff) are:
 {original_diff}
 --- DIFF END ---
 
-The programmer's initial draft of the commit message (which we are discussing) is:
---- INITIAL DRAFT START ---
-{initial_commit_draft}
---- INITIAL DRAFT END ---
+The programmer's current draft of the commit message (which we are discussing) is:
+--- CURRENT DRAFT START ---
+{initial_commit_draft} # This will be the 'message_being_refined_in_chat' in practice for context
+--- CURRENT DRAFT END ---
 
-Engage in a conversation. Answer the user's questions about the diff or the draft.
-If they ask for small changes, you can suggest them or incorporate them into your conversational response.
-Focus on being helpful and conversational. The user will use a special command '/apply' when they want a fully regenerated commit message based on the entire discussion.
-Keep your responses concise. Do not attempt to regenerate the full commit message unless explicitly asked via /apply.
-Just respond to the user's query.
+Engage in a conversation.
+- If the user asks a question, answer it.
+- If the user asks for a specific change, a rewrite, or to make something more concise, **your response should be the FULL, REVISED commit message text incorporating that change.**
+- If you provide a revised commit message, ensure it adheres to conventional commit standards.
+- Do not add conversational prefixes like "Okay, here's the revised message:". Just output the raw commit message if you're providing a revision.
+- If just answering a question, provide only the answer.
+
+The user can type '/accept' to make your last suggested full commit message the new current draft, or '/apply' to use the current draft for the final commit and exit.
 """
 
 CHAT_APPLY_SYSTEM_PROMPT = """
@@ -412,35 +416,32 @@ Commit Message:
         """Handle Ctrl+I: Open chat for refinement."""
         current_text_in_editor_buffer = event.app.current_buffer.text
         
-        # DEBUG:
-        click.echo(f"\nDEBUG [Ctrl+I]: Text in editor BEFORE chat:\n---\n{current_text_in_editor_buffer}\n---")
+        app_style = event.app.style # Get the current application's style
 
-        # Announce entering chat mode
-        click.echo(click.style("\n==> Entering Chat Mode (Ctrl+I)...", bold=True, fg="magenta"))
+        print_formatted_text(FormattedText([
+            ('bold fg:ansimagenta', "\n==> Entering Chat Mode...")
+        ]), style=app_style)   
         
         # Call the async chat refinement function
         # This function handles its own click.echo UI elements for the chat interaction
         refined_message_from_chat = await _chat_for_refinement(
             current_text_in_editor_buffer,
             original_diff,
-            model_obj
+            model_obj,
+            custom_style
         )
-        
-        # Announce returning from chat mode
-        click.echo(click.style("\n<== Exited Chat Mode. Returning to editor.", bold=True, fg="magenta"))
-        
-        # DEBUG:
-        click.echo(f"DEBUG [Ctrl+I]: Chat returned:\n---\n{refined_message_from_chat}\n---")
 
-        if refined_message_from_chat is not None and refined_message_from_chat != current_text_in_editor_buffer:
-            event.app.current_buffer.text = refined_message_from_chat
-            # Move cursor to end of new text
-            event.app.current_buffer.cursor_position = len(refined_message_from_chat)
-            click.echo(click.style("Editor updated with message from chat.", fg="green"))
-        elif refined_message_from_chat == current_text_in_editor_buffer:
-            click.echo(click.style("Chat did not change the message. Editor remains the same.", fg="yellow"))
-        else: # Should not happen if _chat_for_refinement always returns a string
-            click.echo(click.style("Chat did not return a message. Editor not updated.", fg="red"))
+        print_formatted_text(FormattedText([
+            ('bold fg:ansimagenta', "<== Exiting Chat Mode...")
+        ]), style=app_style)
+        
+
+
+        if refined_message_from_chat is not None: 
+            if refined_message_from_chat != current_text_in_editor_buffer:
+                # buffer update
+                event.app.current_buffer.text = refined_message_from_chat
+                event.app.current_buffer.cursor_position = len(refined_message_from_chat)
             
         event.app.invalidate() # CRUCIAL: Force redraw of the main prompt UI
 
@@ -513,56 +514,100 @@ def _execute_git_commit(message, commit_all_tracked):
         click.echo(click.style("Error: 'git' command not found.", fg="red"))
 
 
-async def _chat_for_refinement(initial_commit_draft: str, original_diff: str, model: llm.Model) -> str: # <<<< NEW ASYNC CHAT FUNCTION
+async def _chat_for_refinement(initial_commit_draft: str, original_diff: str, model: llm.Model, passed_style: Style) -> str:
     """
     Handles interactive chat with the LLM to refine a commit message.
-    Returns the refined commit message if applied, otherwise the initial draft.
+    - initial_commit_draft: The draft when chat was first entered.
+    - message_being_refined_in_chat: The current conceptual draft, updated by /accept or confirmed /apply.
+                                     Displayed each turn. Content styled via 'class:instruction'.
+    - LLM Response content: Plain terminal text.
+    - Surrounding text/prefixes: Styled using passed_style or direct colors.
     """
-    # This function will use click.echo for its own UI.
-    # It should be called when the main prompt_toolkit app is 'paused' or able to yield.
-    click.echo(click.style("\n--- Chat Mode Activated ---", fg="magenta"))
-    click.echo("Type queries, or /apply, /cancel. Ctrl+D on empty line also cancels.")
+
+    # Helper for printing FormattedText using the passed style sheet
+    def print_styled(text_parts_tuples, end='\n'):
+        print_formatted_text(FormattedText(text_parts_tuples), style=passed_style, end=end)
+
+    print_styled([('bold fg:ansimagenta', "\n--- Chat Session Started ---")])
+    print_styled([
+        ('', "Type query, or "),
+        ('bold', "/accept"), ('', " (accept LLM's last suggestion as current draft),"),
+    ])
+    print_styled([
+        ('bold', "/apply"), ('', " (use current draft & exit), "),
+        ('bold', "/cancel"), ('', " (discard chat changes & exit).")
+    ])
+    print_styled([('class:dim', "LLM considers original diff & the initial draft context.")])
+
+    print_styled([('bold fg:ansiyellow', f"\nReference: Initial Draft (when chat started):")])
+    for line in initial_commit_draft.splitlines():
+        print_styled([('class:instruction', line)])
+    print_formatted_text("---", style=passed_style)
 
     chat_history = []
-    # System prompt for conversational turns, formatted with initial context
-    current_chat_system_prompt = CHAT_REFINEMENT_SYSTEM_PROMPT_TEMPLATE.format(
-        original_diff=original_diff,
-        initial_commit_draft=initial_commit_draft
-    )
-    # This tracks the message state within this chat session
     message_being_refined_in_chat = initial_commit_draft
+    last_llm_suggestion_text = None 
 
-    chat_session = PromptSession( # A new session for the chat sub-prompt
-        message="💬 Chat: ", # Simple prompt for chat
-        # No complex styling here unless specifically desired for chat
+    def get_current_chat_system_prompt():
+        return CHAT_REFINEMENT_SYSTEM_PROMPT_TEMPLATE.format(
+            original_diff=original_diff,
+            initial_commit_draft=message_being_refined_in_chat
+        )
+
+    chat_input_prompt_style_dict = {'prompt': 'fg:ansimagenta'}
+    chat_session_own_style = Style.from_dict(chat_input_prompt_style_dict)
+
+    chat_session = PromptSession(
+        message=FormattedText([('class:prompt', "Your Query: ")]),
+        style=chat_session_own_style,
     )
 
     while True:
-        click.echo(click.style(f"\nDraft being discussed:\n---\n{message_being_refined_in_chat}\n---", fg="yellow"))
+        print_styled([('bold fg:ansiyellow', f"\nCurrent Draft being refined in chat:")])
+        for line in message_being_refined_in_chat.splitlines():
+            print_styled([('class:instruction', line)])
+        print_formatted_text("---", style=passed_style)
+
         try:
-            with patch_stdout(): # Ensure clean prompt display for chat_session
+            with patch_stdout():
                 user_query = await chat_session.prompt_async()
         except KeyboardInterrupt:
-            click.echo(click.style("\nChat cancelled (Ctrl+C). No changes applied from this chat.", fg="yellow"))
-            return initial_commit_draft # Return original draft if chat is hard-cancelled
+            print_styled([('fg:ansiyellow', "\nChat cancelled (Ctrl+C). Returning original draft.")])
+            return initial_commit_draft
         except EOFError:
-            user_query = "/cancel" # Treat Ctrl+D on empty line as /cancel
+            user_query = "/cancel"
+            print_styled([('class:dim', "(Ctrl+D treated as /cancel)")])
 
         if not user_query.strip():
-            user_query = "/cancel" # Treat empty line submission as /cancel
+            user_query = "/cancel"
+            print_styled([('class:dim', "(Empty input treated as /cancel)")])
+
+        print_styled([('bold fg:ansiblue', "You: "), ('fg:ansiwhite', user_query)])
 
         if user_query.lower() == "/cancel":
-            click.echo(click.style("Exiting chat. No changes applied from this chat.", fg="yellow"))
-            return initial_commit_draft # Return the draft as it was when this chat session started
+            print_styled([('bold fg:ansiyellow', "--- Chat Cancelled. Returning original draft. ---")])
+            return initial_commit_draft
+
+        elif user_query.lower() == "/accept":
+            if last_llm_suggestion_text:
+                message_being_refined_in_chat = last_llm_suggestion_text
+                print_styled([('bold fg:ansigreen', "Suggestion accepted. Current draft updated.")])
+                last_llm_suggestion_text = None 
+                chat_history.append({"role": "user", "content": "/accept"})
+                chat_history.append({"role": "assistant", "content": "(User accepted last LLM suggestion as new current draft)"})
+            else:
+                print_styled([('fg:ansiyellow', "No recent LLM suggestion to accept. Ask LLM to refine first.")])
+            print_formatted_text("---", style=passed_style)
+            continue
 
         elif user_query.lower() == "/apply":
-            click.echo(click.style("🔄 Applying chat to refine commit message...", fg="cyan"))
+            print_styled([('fg:ansicyan', "Processing /apply...")])
             apply_user_content = (
                 f"Original Git Diff:\n```diff\n{original_diff}\n```\n\n"
-                f"Initial Commit Draft (when chat started):\n```\n{initial_commit_draft}\n```\n\n"
-                f"Latest Draft (just before /apply):\n```\n{message_being_refined_in_chat}\n```\n\n"
-                f"Conversation History:\n{_format_chat_history_for_prompt(chat_history)}\n\n"
-                "Generate the refined commit message (raw text only):"
+                f"Initial Commit Draft (when chat session started):\n```\n{initial_commit_draft}\n```\n\n"
+                f"Current Working Draft (basis for this /apply):\n```\n{message_being_refined_in_chat}\n```\n\n"
+                f"Conversation History (leading to this /apply):\n{_format_chat_history_for_prompt(chat_history)}\n\n"
+                "Based on all the above, generate the new, complete commit message. Output ONLY the raw commit message text:"
             )
             apply_prompt_messages = [
                 {"role": "system", "content": CHAT_APPLY_SYSTEM_PROMPT},
@@ -570,32 +615,58 @@ async def _chat_for_refinement(initial_commit_draft: str, original_diff: str, mo
             ]
             try:
                 response = model.chat(apply_prompt_messages) if hasattr(model, "chat") else model.prompt(apply_user_content, system=CHAT_APPLY_SYSTEM_PROMPT)
-                new_commit_message = response.text().strip()
-                if not new_commit_message:
-                    click.echo(click.style("LLM returned empty message for /apply.", fg="red"))
-                else:
-                    click.echo(click.style("✅ LLM refined message. Will be applied to editor.", fg="green"))
-                    # DEBUG:
-                    click.echo(f"DEBUG [/apply returns]:\n---\n{new_commit_message}\n---")
-                    return new_commit_message # This is the key: return the NEW message
-            except Exception as e:
-                click.echo(click.style(f"Error during /apply LLM call: {e}", fg="red"))
-            continue # Back to chat prompt
+                new_commit_message_from_llm = response.text().strip()
 
-        # Regular chat turn
+                if not new_commit_message_from_llm:
+                    print_styled([('fg:ansired', "LLM returned empty for /apply. Current draft unchanged.")])
+                else:
+                    print_styled([('fg:ansigreen', "LLM generated the following for /apply:")])
+                    for line in new_commit_message_from_llm.splitlines():
+                        print_styled([('class:instruction', line)])
+                    print_formatted_text("---", style=passed_style)
+                    
+                    confirm_prompt_style_dict = {'prompt': 'bold fg:ansiyellow'}
+                    # Use a new Style object for this temporary session's specific prompt style
+                    temp_session_style = Style.from_dict(confirm_prompt_style_dict)
+                    confirm_prompt_ft = FormattedText([('class:prompt', "Use this message & exit chat? (y/N): ")])
+                    
+                    confirmation = ""
+                    with patch_stdout():
+                        temp_session = PromptSession(message=confirm_prompt_ft, style=temp_session_style)
+                        confirmation = await temp_session.prompt_async()
+
+                    if confirmation.lower().strip() == 'y':
+                        message_being_refined_in_chat = new_commit_message_from_llm
+                        print_styled([('bold fg:ansigreen', "--- Chat Applied. Returning to editor. ---")])
+                        return message_being_refined_in_chat 
+                    else:
+                        print_styled([('bold fg:ansiyellow', "/apply changes discarded by user. Continuing chat.")])
+            except Exception as e:
+                print_styled([('fg:ansired', f"Error in /apply: {e}")])
+            print_formatted_text("---", style=passed_style)
+            continue
+
         chat_history.append({"role": "user", "content": user_query})
-        # For LLM context, use the system prompt and the growing chat history
-        messages_for_llm = [{"role": "system", "content": current_chat_system_prompt}] + chat_history
+        messages_for_llm = [{"role": "system", "content": get_current_chat_system_prompt()}] + chat_history
+        
+        last_llm_suggestion_text = None 
         try:
-            click.echo(click.style("🗣️ LLM...", fg="blue"), nl=False)
-            response = model.chat(messages_for_llm) if hasattr(model, "chat") else model.prompt(_format_chat_history_for_prompt(messages_for_llm[1:]), system=messages_for_llm[0]['content']) # Simplified fallback
+            print_styled([('fg:ansiblue class:dim', "LLM thinking...")])
+            
+            response = model.chat(messages_for_llm) if hasattr(model, "chat") else model.prompt(_format_chat_history_for_prompt(messages_for_llm[1:]), system=get_current_chat_system_prompt())
             llm_response_text = response.text().strip()
-            click.echo(click.style(" ✔️", fg="green"))
-            if not llm_response_text: llm_response_text = "(LLM returned no text)"
-            click.echo(click.style(f"🤖 LLM: {llm_response_text}", fg="green"))
-            chat_history.append({"role": "assistant", "content": llm_response_text})
-            # Note: message_being_refined_in_chat is NOT updated here. Only by /apply.
+            
+            print_styled([('bold fg:ansigreen', "LLM:")])
+            if not llm_response_text:
+                print_styled([('class:dim', "(LLM returned no text)")])
+                chat_history.append({"role": "assistant", "content": ""})
+            else:
+                for line in llm_response_text.splitlines():
+                    print_formatted_text(FormattedText([('', line)]), style=passed_style, end='\n')
+                chat_history.append({"role": "assistant", "content": llm_response_text})
+                if "\n" in llm_response_text or any(kw in llm_response_text.lower() for kw in ["feat:", "fix:", "chore:", "docs:", "refactor:"]):
+                    last_llm_suggestion_text = llm_response_text
         except Exception as e:
-            click.echo(click.style(f"\nError during chat LLM call: {e}", fg="red"))
-            chat_history.append({"role": "assistant", "content": f"(Error: {e})"}) # Log error in history
-        click.echo("---") # End of turn separator
+            print_styled([('fg:ansired', f"\nLLM Error: {e}")])
+            chat_history.append({"role": "assistant", "content": f"(LLM Error: {e})"})
+        print_formatted_text("---", style=passed_style)
