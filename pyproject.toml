@@ -1,6 +1,6 @@
 [project]
 name = "llm-git-commit"
-version = "0.1.3"
+version = "0.1.4"
 description = "LLM plugin to generate git commit messages and interactively commit."
 readme = "README.md" 
 authors = [{name = "shamanic", email = "shamanicbeatbox@gmail.com"}] 
