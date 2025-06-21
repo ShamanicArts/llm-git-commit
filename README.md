@@ -29,11 +29,25 @@ This command will:
 3.  If no staged changes are found (when using the default `--staged` option), you will be prompted to stage all changes before proceeding.
 4.  Present the LLM-generated commit message for you to review and edit.
 
-**Interactive Editing:**
--   You can edit the suggested message.
--   Press `Enter` to add a new line within the message.
--   To **submit** the message and proceed to commit, press `Esc` then `Enter`.
--   To **cancel**, press `Ctrl+C` or `Ctrl+D`.
+**Interactive Commit Message Editing and Refinement:**
+The plugin provides a powerful interactive interface for reviewing, editing, and refining the LLM-generated commit message.
+
+-   **Initial Editing:** You can directly edit the suggested message.
+    -   To add a NEW LINE: Press `Enter`.
+    -   To SUBMIT message: Press `Esc`, then `Enter` (or `Alt+Enter`/`Option+Enter`).
+    -   To CANCEL: Press `Ctrl+C` or `Ctrl+D`.
+
+-   **Interactive Chat Refinement (Ctrl+I):**
+    *   During the initial editing phase, press `Ctrl+I` to enter a dedicated chat mode.
+    *   In this mode, you can converse with the LLM to iteratively refine the commit message.
+    *   **How it works:**
+        1.  Type your queries, feedback, or additional instructions to the LLM.
+        2.  The LLM will respond conversationally and may propose a new version of the commit message.
+        3.  If the LLM proposes a new message, you will be prompted to accept (Y) or reject (N) it. Accepting updates the current draft.
+        4.  The chat continues until you decide to finalize the message.
+    *   **Chat Mode Commands:**
+        -   `/apply` or `Ctrl+A`: Use the current draft of the commit message and exit chat mode, returning to the main editor.
+        -   `/cancel`: Discard any changes made in the chat session and exit, returning the message as it was when you entered chat mode.
 
 After submitting the message (or if using `-y`), you'll get a final confirmation before `git commit` is executed.
 After a successful commit, you will be asked if you want to push the changes (default is no).
@@ -45,6 +59,7 @@ After a successful commit, you will be asked if you want to push the changes (de
 -   `-m MODEL_ID`, `--model MODEL_ID`: Specify which LLM model to use.
 -   `-s SYSTEM_PROMPT`, `--system SYSTEM_PROMPT`: Use a custom system prompt.
 -   `-y`, `--yes`: Skip interactive editing and use the LLM's suggestion directly (still asks for final commit confirmation).
+-   `--char-limit`: Set a character limit for the generated commit message subject line. Defaults to 50.
 
 ## The System Prompt
 
@@ -90,6 +105,30 @@ The plugin uses a specific system prompt to guide the LLM in generating commit m
     
     **Output Requirements:**
     Return ONLY the raw commit message text. Do not include any explanations, markdown formatting (like '```'), or any phrases like "Here's the commit message:".
+
+## Configuration
+
+You can configure `llm-git-commit` using `llm`'s configuration system. This allows you to set default values for options like the model, system prompt, and character limit.
+
+To open your `llm` configuration file, run:
+
+```bash
+llm config path
+```
+
+Then, edit the `config.json` file (or `config.yaml` if you prefer YAML) to add a `llm-git-commit` section. For example:
+
+```json
+{
+    "plugins": {
+        "llm-git-commit": {
+            "default_model": "gpt-4",
+            "default_system_prompt": "You are a helpful assistant...",
+            "default_char_limit": 72
+        }
+    }
+}
+```
 
 ## Development
 

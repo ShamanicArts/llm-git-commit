@@ -4,7 +4,9 @@ import subprocess # For running git commands
 from prompt_toolkit import PromptSession # For interactive editing
 from prompt_toolkit.patch_stdout import patch_stdout # Important for prompt_toolkit
 from prompt_toolkit.formatted_text import FormattedText
-from prompt_toolkit.styles import Style        
+from prompt_toolkit.shortcuts import print_formatted_text
+from prompt_toolkit.styles import Style
+from prompt_toolkit.key_binding import KeyBindings        
 import os
 import json
 
@@ -74,6 +76,75 @@ using an LLM based on repository changes.
 **Output Requirements:**
 Return ONLY the raw commit message text. Do not include any explanations, markdown formatting (like '```'), or any phrases like "Here's the commit message:".
 """
+
+# System Prompts for Chat Refinement 
+CHAT_REFINEMENT_SYSTEM_PROMPT_TEMPLATE = """
+You are an expert AI programmer specializing in crafting concise, conventional, and high-quality Git commit messages. Your primary objective is to assist the user in refining their current working draft of a commit message through an interactive dialogue, prioritizing their specific requests for content and style.
+
+**Context Provided:**
+1.  **Original Git Diff:**
+    --- DIFF START ---
+    {original_diff}
+    --- DIFF END ---
+2.  **Programmer's Current Working Draft:** (This draft will evolve if you make proposals that are accepted by the user)
+    --- CURRENT DRAFT START ---
+    {current_draft_for_llm_context}
+    --- CURRENT DRAFT END ---
+
+**Core Principle: User-Directed Refinement**
+While your expertise should guide towards clear, concise, and conventionally formatted commit messages (as detailed in "Commit Message Formatting and Content Standards" below), **if the user makes an explicit request for a specific content change, stylistic alteration (e.g., a different tone, a specific phrasing), or structural modification, your primary goal for any proposal you make is to fulfill that user's directive.** You should attempt to incorporate their request into a new commit message proposal. If a user's stylistic request conflicts with strict conventional commit formatting (e.g., for type or subject), prioritize the user's explicit stylistic request for the proposal's content, while still aiming for overall clarity and basic commit structure (subject/body).
+
+**Interaction Protocol:**
+
+1.  **Analyze User Input:** Carefully consider the user's queries, requests for changes, or questions.
+2.  **Conversational Interaction:** Respond naturally. Provide explanations or ask clarifying questions.
+3.  **Proposing Revisions to the Commit Message:**
+    *   When the user asks for a modification and you are ready to propose a new version of the *entire commit message*, structure your response in two parts:
+        a.  **Conversational Part:** Explain how you've addressed their request. 
+        b.  **Structured Proposal Block (Mandatory):** Following your conversational text, you **MUST** provide the ** raw commit message text** clearly demarcated:
+            ```
+            PROPOSED_COMMIT_MESSAGE_START
+            <type>(<scope>): <subject>
+
+            <optional body>
+            PROPOSED_COMMIT_MESSAGE_END
+            ```
+            The content between these markers **MUST strictly adhere to the "Commit Message Formatting and Content Standards" below, UNLESS the user's explicit request necessitates a deviation (e.g., a highly stylistic tone).** In case of such a deviation, prioritize the user's request for the content between the markers.
+
+4.  **Answering Questions / General Discussion:**
+    *   If *only* answering a question or discussing parts *without the user asking for a modification to the entire commit message*, **DO NOT use the `PROPOSED_COMMIT_MESSAGE_START`/`END` markers.**
+
+**Commit Message Formatting and Content Standards (applies to text within markers by default; user requests may override style):**
+*   **Output ONLY Raw Text:** (As detailed previously)
+*   **Conventional Commits:** (As detailed previously - type, scope, subject)
+*   **Subject Line:** (As detailed previously - 50 chars, imperative, no caps, no dot)
+*   **Body (Optional):** (As detailed previously - blank line, what/why, concise, bullets, 72 chars)
+*   **Content Focus (CRITICAL):** (As detailed previously - diff focus, new files purpose, DO NOTs)
+
+**Exemplar of Proposing a (Standard, Professional) Commit Message:**
+
+User: The subject is weak, and the body doesn't explain the 'why'.
+
+Assistant: You're right, we can definitely improve that. I've rephrased the subject to be a clear action and added a brief explanation to the body about the motivation for the change.
+Here's my suggestion:
+
+PROPOSED_COMMIT_MESSAGE_START
+refactor: improve data pipeline efficiency
+
+Replaces iterative loop in data transformation with vectorized pandas operations.
+This change significantly reduces processing time for large datasets,
+improving overall system performance.
+PROPOSED_COMMIT_MESSAGE_END
+
+**End of Exemplar.**
+
+The system will use the text between the markers for user confirmation.
+"""
+
+
+
+PROPOSED_COMMIT_MARKER_START = "PROPOSED_COMMIT_MESSAGE_START"
+PROPOSED_COMMIT_MARKER_END = "PROPOSED_COMMIT_MESSAGE_END"
 
 # --- LLM Plugin Hook ---
 @llm.hookimpl
@@ -217,7 +288,7 @@ def register_commands(cli):
             click.echo(click.style("\nUsing LLM-generated message directly:", fg="cyan"))
             click.echo(f'"""\n{final_message}\n"""')
         else:
-            final_message = _interactive_edit_message(generated_message)
+            final_message = _interactive_edit_message(generated_message, diff_output, model_obj)
 
         if final_message is None or not final_message.strip():
             click.echo("Commit aborted.")
@@ -286,6 +357,13 @@ def register_commands(cli):
 
 
 # --- Helper Functions  ---
+
+def _format_chat_history_for_prompt(chat_history: list) -> str: # <<<< NEW HELPER (small, self-contained)
+    """Formats chat history for inclusion in a prompt."""
+    if not chat_history:
+        return "No conversation history yet."
+    return "\n".join([f"{msg['role'].capitalize()}: {msg['content']}" for msg in chat_history])
+
 def _is_git_repository():
     """Checks if the current directory is part of a git repository."""
     try:
@@ -341,7 +419,7 @@ def _show_git_status():
         click.echo(click.style("Could not retrieve git status.", fg="yellow"))
 
 
-def _interactive_edit_message(suggestion):
+def _interactive_edit_message(suggestion: str, original_diff: str, model_obj: llm.Model):
     """Allows interactive editing of the commit message."""
     click.echo(click.style("\nSuggested commit message (edit below):", fg="cyan"))
     
@@ -350,6 +428,7 @@ Type/edit your commit message below.
   - To add a NEW LINE: Press Enter.
   - To SUBMIT message: Press Esc, then press Enter.
                      (Alternatively, try Alt+Enter or Option+Enter on Mac).
+  - Chat to Refine: Ctrl+I.
   - To CANCEL: Press Ctrl+D or Ctrl-C.
 
 Commit Message:
@@ -362,15 +441,53 @@ Commit Message:
         ('class:instruction', prompt_instructions_text)
     ])
 
+    kb = KeyBindings()
+    
+    @kb.add('c-i')
+    async def _handle_chat_refine(event): # Renamed for clarity
+        """Handle Ctrl+I: Open chat for refinement."""
+        current_text_in_editor_buffer = event.app.current_buffer.text
+        
+        app_style = event.app.style # Get the current application's style
+
+        print_formatted_text(FormattedText([
+            ('bold fg:ansimagenta', "\n==> Entering Chat Mode...")
+        ]), style=app_style)   
+        
+        # Call the async chat refinement function
+        # This function handles its own click.echo UI elements for the chat interaction
+        refined_message_from_chat = await _chat_for_refinement(
+            current_text_in_editor_buffer,
+            original_diff,
+            model_obj,
+            custom_style
+        )
+
+        print_formatted_text(FormattedText([
+            ('bold fg:ansimagenta', "<== Exiting Chat Mode...")
+        ]), style=app_style)
+        
+
+
+        if refined_message_from_chat is not None: 
+            if refined_message_from_chat != current_text_in_editor_buffer:
+                # buffer update
+                event.app.current_buffer.text = refined_message_from_chat
+                event.app.current_buffer.cursor_position = len(refined_message_from_chat)
+            
+        event.app.invalidate() # CRUCIAL: Force redraw of the main prompt UI
+
     session = PromptSession(
         message=formatted_instructions,
         style=custom_style,
+        key_bindings=kb,
+        multiline=True, 
     )
     
     with patch_stdout():
         edited_message = session.prompt(
             default=suggestion, 
-            multiline=True 
+            #multiline=True 
         )
     return edited_message
 
@@ -427,3 +544,231 @@ def _execute_git_commit(message, commit_all_tracked):
         click.echo(output if output else "No output from git.")
     except FileNotFoundError:
         click.echo(click.style("Error: 'git' command not found.", fg="red"))
+
+
+async def _chat_for_refinement(initial_commit_draft: str, original_diff: str, model: llm.Model, passed_style: Style) -> str:
+    """
+    Handles interactive chat for refining commit messages.
+    - Ctrl+A or /apply: Uses the current working draft, confirms, and exits.
+    - LLM proposals (via markers) get a Y/N prompt to update the current working draft.
+    """
+
+    # Helper for printing FormattedText using the passed style sheet
+    def print_styled(text_parts_tuples, end='\n'):
+        print_formatted_text(FormattedText(text_parts_tuples), style=passed_style, end=end)
+
+    # --- Bottom Toolbar Definition ---
+    def get_bottom_toolbar_ft():
+        return FormattedText([
+            ('fg:ansiblack bg:ansicyan bold', "[Chat]"),
+            ('fg:ansiblack bg:ansicyan', " Ctrl+A or /apply: Use Current Draft & Exit | "),
+            ('fg:ansiblack bg:ansicyan bold', "/cancel"), ('fg:ansiblack bg:ansicyan', ":Discard & Exit"),
+        ])
+
+    print_styled([('bold fg:ansimagenta', "\n--- Chat Session Started ---")])
+    print_styled([('class:dim', "LLM considers original diff & the initial draft context.")]) # Uses 'dim' from passed_style
+
+    print_styled([('bold fg:ansiyellow', f"\nReference: Initial Draft (when chat started):")])
+    for line in initial_commit_draft.splitlines():
+        print_styled([('class:instruction', line)]) # Uses 'instruction' from passed_style for cyan
+    print_formatted_text("---", style=passed_style)
+
+    chat_history = []
+    message_being_refined_in_chat = initial_commit_draft # This is the evolving draft
+    # Stores the text of the last proposal from markers, cleared after Y/N or Ctrl+A action on it.
+    last_marker_proposal_text = None 
+    
+    def get_current_chat_system_prompt():
+        # Use the CHAT_REFINEMENT_SYSTEM_PROMPT_TEMPLATE defined globally
+        return CHAT_REFINEMENT_SYSTEM_PROMPT_TEMPLATE.format(
+            original_diff=original_diff,
+            current_draft_for_llm_context=message_being_refined_in_chat
+        )
+
+    # KeyBindings for the chat input session
+    chat_kb = KeyBindings()
+    @chat_kb.add('c-a') # Ctrl+A for FINAL APPLY
+    async def _handle_apply_via_ctrl_a(event):
+        print_styled([('fg:ansicyan', "\n(Ctrl+A pressed, initiating apply sequence...)")])
+        event.app.exit(result="/apply") # Make the prompt return "/apply"
+
+    chat_input_prompt_style_dict = {'prompt': 'fg:ansimagenta'}
+    effective_chat_session_style = Style(list(passed_style.style_rules) + list(Style.from_dict(chat_input_prompt_style_dict).style_rules))
+
+    chat_session = PromptSession(
+        message=FormattedText([('class:prompt', "Your Query: ")]),
+        style=effective_chat_session_style,
+        bottom_toolbar=get_bottom_toolbar_ft,
+        key_bindings=chat_kb # Attach keybindings
+    )
+    
+    confirm_prompt_style_dict = {'prompt': 'bold fg:ansiyellow'}
+    confirm_session_style = Style.from_dict(confirm_prompt_style_dict)
+
+    while True:
+        print_styled([('bold fg:ansiyellow', f"\nCurrent Draft being refined in chat:")])
+        for line in message_being_refined_in_chat.splitlines():
+            print_styled([('class:instruction', line)]) # Uses 'instruction' for cyan
+        print_formatted_text("---", style=passed_style)
+
+        user_input_from_prompt = ""
+        try:
+            with patch_stdout():
+                user_input_from_prompt = await chat_session.prompt_async()
+        
+        except KeyboardInterrupt: user_input_from_prompt = "/cancel"
+        except EOFError: user_input_from_prompt = "/cancel"; print_styled([('class:dim', "(Ctrl+D treated as /cancel)")])
+        
+        if user_input_from_prompt is None: user_input_from_prompt = "/cancel" 
+        
+        cleaned_user_query = user_input_from_prompt.strip() 
+        
+        if not cleaned_user_query and user_input_from_prompt != "/apply":
+            cleaned_user_query = "/cancel"
+            print_styled([('class:dim', "(Empty input treated as /cancel)")])
+
+        if cleaned_user_query.lower() != "/apply" or user_input_from_prompt == "/apply":
+             print_styled([('bold fg:ansiblue', "You: "), ('fg:ansiwhite', cleaned_user_query if cleaned_user_query else "(Action via Keybinding / Empty)")])
+
+        if cleaned_user_query.lower() == "/cancel":
+            print_styled([('bold fg:ansiyellow', "\nChat cancelled. Returning original draft.")])
+            return initial_commit_draft
+
+        elif cleaned_user_query.lower() == "/apply":
+            last_marker_proposal_text = None # Clear any pending proposal, this is a final action path
+            print_styled([('fg:ansicyan', "Preparing to apply current draft...")])
+            
+            final_message_to_apply = message_being_refined_in_chat
+
+            if not final_message_to_apply.strip():
+                print_styled([('fg:ansired', "Current draft is empty. Cannot apply.")])
+                print_formatted_text("---", style=passed_style)
+                continue 
+
+            print_styled([('fg:ansigreen', "This is the current draft that will be applied:")])
+            for line in final_message_to_apply.splitlines():
+                print_styled([('class:instruction', line)]) # Show current draft styled cyan
+            print_formatted_text("---", style=passed_style)
+            
+            confirm_prompt_ft = FormattedText([('class:prompt', "Use this message & exit chat? (Y/n): ")])
+            confirmation = ""
+            with patch_stdout():
+                temp_session = PromptSession(message=confirm_prompt_ft, style=confirm_session_style)
+                confirmation = await temp_session.prompt_async()
+
+            if confirmation.lower().strip() == 'y' or not confirmation.strip(): # Default Y
+                print_styled([('bold fg:ansigreen', "--- Current draft confirmed. Returning to editor. ---")])
+                return final_message_to_apply 
+            else:
+                print_styled([('bold fg:ansiyellow', "/apply action discarded by user. Continuing chat.")])
+            
+            print_formatted_text("---", style=passed_style)
+            continue 
+        
+        # --- Regular chat query ---
+        else:
+            chat_history.append({"role": "user", "content": cleaned_user_query})
+            messages_for_llm = [{"role": "system", "content": get_current_chat_system_prompt()}] + chat_history
+            
+            extracted_proposal_text = None
+            llm_full_response_text = ""
+            conversational_parts_to_print = []
+            conversational_text_for_history_if_proposal_rejected = ""
+            # Don't clear last_marker_proposal_text here; user might type a new query before Ctrl+A for previous proposal
+
+            try:
+                print_styled([('fg:ansiblue class:dim', "LLM thinking...")])
+                response_obj = model.chat(messages_for_llm) if hasattr(model, "chat") else model.prompt(
+                    _format_chat_history_for_prompt(messages_for_llm[1:]), system=get_current_chat_system_prompt()
+                )
+                
+                if hasattr(response_obj, 'text') and callable(response_obj.text):
+                     llm_full_response_text = response_obj.text()
+                elif isinstance(response_obj, str):
+                     llm_full_response_text = response_obj
+                else: 
+                     llm_full_response_text = str(response_obj)
+
+                print_styled([('bold fg:ansigreen', "LLM:")]) # LLM Prefix
+                if not llm_full_response_text.strip():
+                    print_styled([('class:dim', "(LLM returned no text)")])
+                    conversational_text_for_history_if_proposal_rejected = "" # Explicitly empty
+                else:
+                    start_marker_idx = llm_full_response_text.find(PROPOSED_COMMIT_MARKER_START)
+                    end_marker_idx = -1
+                    if start_marker_idx != -1:
+                        end_marker_idx = llm_full_response_text.find(PROPOSED_COMMIT_MARKER_END, start_marker_idx + len(PROPOSED_COMMIT_MARKER_START))
+
+                    if start_marker_idx != -1 and end_marker_idx != -1:
+                        conv_before = llm_full_response_text[:start_marker_idx].strip()
+                        if conv_before: conversational_parts_to_print.append(conv_before)
+                        
+                        proposal_start_content_idx = start_marker_idx + len(PROPOSED_COMMIT_MARKER_START)
+                        temp_extracted = llm_full_response_text[proposal_start_content_idx:end_marker_idx].strip()
+                        if temp_extracted: 
+                             extracted_proposal_text = temp_extracted
+                             last_marker_proposal_text = extracted_proposal_text # Available for Ctrl+A
+                        else: # Markers present but empty content
+                             last_marker_proposal_text = None 
+                        
+                        conv_after = llm_full_response_text[end_marker_idx + len(PROPOSED_COMMIT_MARKER_END):].strip()
+                        if conv_after: conversational_parts_to_print.append(conv_after)
+                        
+                        conversational_text_for_history_if_proposal_rejected = "\n".join(filter(None, [conv_before, conv_after])).strip()
+                    else: 
+                        conversational_parts_to_print.append(llm_full_response_text.strip())
+                        conversational_text_for_history_if_proposal_rejected = llm_full_response_text.strip()
+                        last_marker_proposal_text = None # No valid proposal this turn
+
+                    for part in conversational_parts_to_print:
+                        if part:
+                            for line in part.splitlines():
+                                print_formatted_text(FormattedText([('', line)]), style=passed_style, end='\n')
+            
+            except Exception as e:
+                print_styled([('fg:ansired', f"\nLLM Error: {e}")])
+                conversational_text_for_history_if_proposal_rejected = f"(LLM Error: {e})"
+                extracted_proposal_text = None 
+                last_marker_proposal_text = None # Error means no valid proposal pending
+            
+            # --- Add assistant's response to history (deferred until after Y/N) ---
+            assistant_response_for_history = ""
+
+            if extracted_proposal_text:
+                print_formatted_text("---", style=passed_style) 
+                print_styled([('bold fg:ansiyellow', "LLM Proposes Update to Draft:")])
+                for line in extracted_proposal_text.splitlines():
+                    print_styled([('class:instruction', line)])
+                print_formatted_text("---", style=passed_style)
+
+                confirm_prompt_ft = FormattedText([('class:prompt', "Accept this proposal as current draft? (Y/n): ")])
+                acceptance = ""
+                with patch_stdout():
+                    temp_session = PromptSession(message=confirm_prompt_ft, style=confirm_session_style)
+                    acceptance = await temp_session.prompt_async()
+
+                if acceptance.lower().strip() == 'y' or not acceptance.strip():
+                    message_being_refined_in_chat = extracted_proposal_text
+                    print_styled([('bold fg:ansigreen', "Proposal accepted. Current draft updated.")])
+                    chat_history.append({"role": "user", "content": "(User accepted LLM's proposal to update draft)"}) 
+                    assistant_response_for_history = message_being_refined_in_chat # Store accepted draft as "assistant's response"
+                else:
+                    print_styled([('fg:ansiyellow', "Proposal rejected. Current draft remains unchanged.")])
+                    if conversational_text_for_history_if_proposal_rejected:
+                        assistant_response_for_history = conversational_text_for_history_if_proposal_rejected
+                    else: 
+                        assistant_response_for_history = "(LLM made a proposal which was rejected by the user.)"
+                last_marker_proposal_text = None # Proposal has been acted upon (Y/N), clear for Ctrl+A
+            
+            else: # No proposal was extracted, so all LLM output was conversational (or an error)
+                 assistant_response_for_history = conversational_text_for_history_if_proposal_rejected
+                 # last_marker_proposal_text remains None or its previous value if user didn't Y/N last turn
+
+            # Add the determined assistant response to history
+            if assistant_response_for_history or not llm_full_response_text.strip(): # Add even if empty if LLM returned empty
+                chat_history.append({"role": "assistant", "content": assistant_response_for_history})
+            
+        print_formatted_text("---", style=passed_style) # End of turn separator
+
+
+        
