@@ -18,8 +18,8 @@ requires-python = ">=3.8"
 
 # Optional: Add links to your repository if you plan to host it\
 [project.urls]
-Homepage = "https://github.com/shamanicvocalarts/llm-git-commit"
-Issues = "https://github.com/shamanicvocalarts/llm-git-commit"
+Homepage = "https://github.com/shamanicarts/llm-git-commit"
+Issues = "https://github.com/shamanicarts/llm-git-commit"
 
 [project.entry-points.llm]
 git-commit = "llm_git_commit"
