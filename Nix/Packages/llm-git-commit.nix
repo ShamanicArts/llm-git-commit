@@ -1,10 +1,10 @@
 {
-  python3Packages,
+  buildPythonPackage,
   pkgs,
   lib,
   fetchPypi,
 }:
-python3Packages.buildPythonApplication rec {
+buildPythonPackage rec {
   pname = "llm_git_commit";
   version = "0.1.4";
   pyproject = true;
