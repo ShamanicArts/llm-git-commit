@@ -2,16 +2,17 @@
   python3Packages,
   pkgs,
   lib,
-  ...
+  fetchPypi,
 }:
 python3Packages.buildPythonApplication rec {
-  name = "llm-git-commit";
+  pname = "llm_git_commit";
   version = "0.1.4";
   pyproject = true;
 
-  src = ../../dist/llm_git_commit-0.1.1.tar.gz;
-
-  doCheck = false;
+  src = fetchPypi {
+    inherit pname version;
+    sha256 = "sha256-qETISX0SjuQKdqVL2P2hf3qvF9gwleVE2EbegU6txYk=";
+  };
 
   build-system = with pkgs.python3Packages; [
     setuptools
@@ -23,7 +24,9 @@ python3Packages.buildPythonApplication rec {
     prompt-toolkit
   ];
 
-  dontCheckRuntimeDeps = true;
+  doCheck = true;
+
+  pythonImportsCheck = ["llm_git_commit"];
 
   meta = with lib; {
     description = ''
