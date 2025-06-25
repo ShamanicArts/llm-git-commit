@@ -28,6 +28,8 @@ in
       prompt-toolkit
     ];
 
+    dontCheckRuntimeDeps = true;
+
     meta = with lib; {
       description = ''
         a plugin for SimonW llm CLI which analyses diffs in a local git repository , generates commit messages in an interactive prompt & commits
@@ -35,5 +37,6 @@ in
       homepage = "https://github.com/ShamanicArts/llm-git-commit.git";
       license = licenses.mit;
       maintainers = with maintainers; [Immelancholy];
+      mainProgram = "llm-git-commit";
     };
   }
