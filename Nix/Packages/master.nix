@@ -6,6 +6,7 @@
   fs = lib.fileset;
   sourceFiles = fs.difference ../../. ../../dist;
 in
+  fs.trace sourceFiles
   python3Packages.buildPythonPackage rec {
     pname = "llm_git_commit";
     version = "0.1.4";
