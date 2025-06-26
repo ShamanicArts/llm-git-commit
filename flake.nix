@@ -44,7 +44,6 @@
           fi
           echo "Activating venv..."
           source ${venv}/bin/activate
-          echo "Installing package in editable mode..."
         '';
       });
   };
