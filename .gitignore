@@ -7,3 +7,6 @@ __pycache__/
 # Ignore virtual environment directory
 .venv/
 venv/
+
+# Just remove nix result thingy
+/result
