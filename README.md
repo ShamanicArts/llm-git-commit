@@ -15,7 +15,7 @@ llm install llm-git-commit
 ---
 ### ❄️ NixOS installation via flakes
 
-❄️ Add the anifetch repo as a flake input:
+Add the anifetch repo as a flake input:
 ```nix
 {
     inputs = {
