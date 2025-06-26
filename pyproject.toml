@@ -23,3 +23,8 @@ Issues = "https://github.com/shamanicarts/llm-git-commit"
 
 [project.entry-points.llm]
 git-commit = "llm_git_commit"
+
+[tool.setuptools]
+package-dir = { "" = "src/llm_git_commit" }
+include-package-data = true
+
