@@ -358,7 +358,7 @@ def register_commands(cli):
 
 # --- Helper Functions  ---
 
-def _format_chat_history_for_prompt(chat_history: list) -> str: # <<<< NEW HELPER (small, self-contained)
+def _format_chat_history_for_prompt(chat_history: list) -> str: 
     """Formats chat history for inclusion in a prompt."""
     if not chat_history:
         return "No conversation history yet."
