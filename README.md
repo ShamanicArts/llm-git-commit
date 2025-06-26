@@ -2,7 +2,7 @@
 
 llm plugin to generate Git commit messages based on repository changes and interactively commit.
 
-## Installation
+## 🐍 Installation
 
 This plugin requires [llm](https://llm.datasette.io/) to be installed.
 
