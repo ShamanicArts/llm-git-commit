@@ -38,9 +38,14 @@
         ];
 
         shellHook = ''
-          python3 -m venv venv
-          source venv/bin/activate
-          pip install -e .
+          if [ ! -d "${venv}" ]; then
+            echo "Creating Python venv..."
+            python3 -m venv ${venv}
+          fi
+          echo "Activating venv..."
+          source ${venv}/bin/activate
+          echo "Installing package in editable mode..."
+          pip install -e . || echo "Warning: Failed to install package in editable mode."
         '';
       });
   };
