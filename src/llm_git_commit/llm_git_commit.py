@@ -33,7 +33,7 @@ def save_config(config_data):
         json.dump(config_data, f, indent=2)
 
 
-# --- System Prompt (Unchanged) ---
+# --- System Prompt  ---
 DEFAULT_GIT_COMMIT_SYSTEM_PROMPT = """
 You are an expert programmer tasked with writing a concise and conventional git commit message.
 Analyze the provided 'git diff' output, which details specific code changes.
