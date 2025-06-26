@@ -12,10 +12,11 @@ you can install this plugin using llm install like so
 llm install llm-git-commit
 ```
 
-<details>
-<summary>❄️ NixOS installation via flakes</summary>
+## ❄️ NixOS installation via flakes
+
 Add the llm-git-commit repo as a flake input:
-nix{
+```nix
+{
     inputs = {
         llm-git-commit = {
             url = "github:ShamanicArts/llm-git-commit";
@@ -23,8 +24,12 @@ nix{
         };
     };
 }
+```
+
 Add lines defining a Python environment for llm using a let in statement and create a wrapper script:
-nix{
+
+```nix
+{
   pkgs,
   inputs,
   config,
@@ -40,13 +45,17 @@ nix{
     ''
   );
 in {
+```
+
 Add the llm-with-plugins wrapper package to package list:
-nix  environment.systemPackages = with pkgs; [
+
+```nix
+  environment.systemPackages = with pkgs; [
     llm-with-plugins
   ];
-Then rebuild your system, and run llm as you would normally.
-</details>
+```
 
+Then rebuild your system, and run llm as you would normally.
 ## Usage
 
 https://github.com/user-attachments/assets/efa71c28-2a44-4b90-9889-3f1fbacb7507
