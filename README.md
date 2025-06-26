@@ -14,15 +14,18 @@ llm install llm-git-commit
 
 ## ❄️ NixOS installation via flakes
 
+<details>
+<summary>Click to expand NixOS installation instructions</summary>
+
 Add the llm-git-commit repo as a flake input:
 ```nix
 {
-    inputs = {
-        llm-git-commit = {
-            url = "github:ShamanicArts/llm-git-commit";
-            inputs.nixpkgs.follows = "nixpkgs";
-        };
-    };
+   inputs = {
+       llm-git-commit = {
+           url = "github:ShamanicArts/llm-git-commit";
+           inputs.nixpkgs.follows = "nixpkgs";
+       };
+   };
 }
 ```
 
@@ -30,32 +33,35 @@ Add lines defining a Python environment for llm using a let in statement and cre
 
 ```nix
 {
-  pkgs,
-  inputs,
-  config,
-  ...
+ pkgs,
+ inputs,
+ config,
+ ...
 }: let
-  llm-git-commit = inputs.llm-git-commit.packages.${pkgs.system}.default;
-  pyWithLlm = (
-    pkgs.python3.withPackages (ps: [ps.llm ps.llm-mistral llm-git-commit ps.llm-openrouter])
-  );
-  llm-with-plugins = (
-    pkgs.writeShellScriptBin "llm" ''
-      exec ${pyWithLlm}/bin/llm "$@"
-    ''
-  );
+ llm-git-commit = inputs.llm-git-commit.packages.${pkgs.system}.default;
+ pyWithLlm = (
+   pkgs.python3.withPackages (ps: [ps.llm ps.llm-mistral llm-git-commit ps.llm-openrouter])
+ );
+ llm-with-plugins = (
+   pkgs.writeShellScriptBin "llm" ''
+     exec ${pyWithLlm}/bin/llm "$@"
+   ''
+ );
 in {
 ```
 
 Add the llm-with-plugins wrapper package to package list:
 
 ```nix
-  environment.systemPackages = with pkgs; [
-    llm-with-plugins
-  ];
+ environment.systemPackages = with pkgs; [
+   llm-with-plugins
+ ];
 ```
 
 Then rebuild your system, and run llm as you would normally.
+
+</details>
+
 ## Usage
 
 https://github.com/user-attachments/assets/efa71c28-2a44-4b90-9889-3f1fbacb7507
