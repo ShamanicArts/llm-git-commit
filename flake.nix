@@ -45,7 +45,6 @@
           echo "Activating venv..."
           source ${venv}/bin/activate
           echo "Installing package in editable mode..."
-          pip install -e . || echo "Warning: Failed to install package in editable mode."
         '';
       });
   };
