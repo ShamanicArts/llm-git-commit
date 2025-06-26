@@ -33,7 +33,7 @@ python3Packages.buildPythonPackage rec {
       a plugin for SimonW llm CLI which analyses diffs in a local git repository , generates commit messages in an interactive prompt & commits
     '';
     homepage = "https://github.com/ShamanicArts/llm-git-commit.git";
-    license = licenses.mit;
+    license = licenses.asl20;
     maintainers = with maintainers; [Immelancholy];
     mainProgram = "llm-git-commit";
   };
