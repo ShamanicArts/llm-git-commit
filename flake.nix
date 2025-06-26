@@ -22,5 +22,24 @@
     packages = forAllSystems (system: import ./Nix/Packages nixpkgs.legacyPackages.${system});
 
     formatter = forAllSystems (system: nixpkgs.legacyPackages.${system}.alejandra);
+
+    devShell = forAllSystems (system: let
+      pkgs = nixpkgs.legacyPackages.${system};
+      myPython = pkgs.python3;
+      llm-git-commit = self.packages.${pkgs.system}.master;
+      pythonWithPkgs = myPython.withPackages (ps: [
+        ps.setuptools
+        llm-git-commit
+        ps.click
+        ps.llm
+        ps.prompt-toolkit
+        ps.llm-openrouter
+      ]);
+    in
+      pkgs.mkShell {
+        packages = [
+          pythonWithPkgs
+        ];
+      });
   };
 }
