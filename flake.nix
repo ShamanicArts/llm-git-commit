@@ -26,20 +26,22 @@
     devShell = forAllSystems (system: let
       pkgs = nixpkgs.legacyPackages.${system};
       myPython = pkgs.python3;
-      llm-git-commit = self.packages.${pkgs.system}.master;
       pythonWithPkgs = myPython.withPackages (ps: [
+        ps.pip
         ps.setuptools
-        llm-git-commit
-        ps.click
-        ps.llm
-        ps.prompt-toolkit
-        ps.llm-openrouter
       ]);
+      venv = "venv";
     in
       pkgs.mkShell {
         packages = [
           pythonWithPkgs
         ];
+
+        shellHook = ''
+          python3 -m venv venv
+          source venv/bin/activate
+          pip install -e .
+        '';
       });
   };
 }
