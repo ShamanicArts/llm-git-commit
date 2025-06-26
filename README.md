@@ -12,8 +12,7 @@ you can install this plugin using llm install like so
 llm install llm-git-commit
 ```
 
----
-### ❄️ NixOS installation via flakes
+## ❄️ NixOS installation via flakes
 
 Add the anifetch repo as a flake input:
 ```nix
@@ -57,9 +56,6 @@ Add the llm-with-plugins wrapper package to package list:
 ```
 
 Then rebuild your system, and run llm as you would normally.
-
----
-
 
 ## Usage
 
