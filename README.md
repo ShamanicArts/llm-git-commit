@@ -193,4 +193,16 @@ To set up this plugin locally for further development:
     ```
     Now you can modify the code, and the changes will be live when you run `llm git-commit`.
 
+On Nix you can run:
+
+1.  
+    ```bash
+    nix develop
+    ```
+2.  
+    ```bash
+    pip install -e .
+
+This will install llm-git-commit and all its dependencies to a python virtual environment that can be entered by running `nix develop` in the project dir.
+
 ---
