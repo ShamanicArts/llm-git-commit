@@ -202,7 +202,7 @@ On Nix you can run:
 2.  
     ```bash
     pip install -e .
-
+    ```
 This will install llm-git-commit and all its dependencies to a python virtual environment that can be entered by running `nix develop` in the project dir.
 
 ---
